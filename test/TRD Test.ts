@@ -9,7 +9,7 @@ import hre, { ethers } from 'hardhat'
 const name = 'Trade.mn'
 const symbol = 'TRD'
 
-describe('TRD', function () {
+describe('TRD Test Cases', function () {
 	// We define a fixture to reuse the same setup in every test.
 	// We use loadFixture to run this setup once, snapshot that state,
 	// and reset Hardhat Network to that snapshot in every test.
@@ -26,7 +26,6 @@ describe('TRD', function () {
 	describe('Deployment', function () {
 		it('Should set the right owner', async function () {
 			const { trd, owner } = await loadFixture(deployTRD)
-
 			expect(await trd.owner()).to.equal(owner.address)
 		})
 
@@ -50,130 +49,259 @@ describe('TRD', function () {
 		})
 	})
 
-	describe('Withdrawals', function () {
-		describe('Transfer', function () {
-			it('Should be able transfer to receiver', async function () {
-				const { trd, firstWallet, receiver } = await loadFixture(deployTRD)
-				expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
-					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
-			})
-
-			it('Should be able transfer to transfer others fund', async function () {
-				const { trd, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
-				await expect(trd.connect(firstWallet).transferFrom(secondWallet.address, receiver.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
-			})
+	describe('Minting', function () {
+		it('Should be able to mint tokens from owner address', async function () {
+			const { trd, owner, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).mint(receiver.address, ethers.parseEther('1000000000'))).
+				to.emit(trd, 'Transfer').withArgs(ethers.ZeroAddress, receiver.address, ethers.parseEther('1000000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('21000000000'))
+		})
+		it('Should not be able to mint tokens from non owner address', async function () {
+			const { trd, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(trd.connect(firstWallet).mint(receiver.address, ethers.parseEther('1000000000'))).
+				to.revertedWithCustomError(trd, 'OwnableUnauthorizedAccount')
 		})
 	})
 
-	describe('Blacklist', function () {
-		describe('Add and remove from black list', function () {
-			it('Owner should be able to add to black list', async function () {
-				const { trd, owner, firstWallet } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-				expect(await trd.isBlackListAddress(firstWallet.address)).to.equal(true)
-			})
+	describe('BlackList', function () {
+		it('Owner should be able to add to black list', async function () {
+			const { trd, owner, firstWallet } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+			expect(await trd.isBlackListAddress(firstWallet.address)).to.equal(true)
+		})
+		it('Owner should be able to remove from black list', async function () {
+			const { trd, owner, firstWallet } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+			expect(await trd.isBlackListAddress(firstWallet.address)).to.equal(true)
+			await expect(await trd.connect(owner).removeBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'RemovedFromBlackList').withArgs(firstWallet.address)
+			expect(await trd.isBlackListAddress(firstWallet.address)).to.equal(false)
+		})
+	})
 
-			it('Owner should be able to remove from black list', async function () {
-				const { trd, owner, firstWallet } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).removeBlackListAddress(firstWallet.address)).
+
+	describe('Burn', function () {
+		it('Should be able to burn from own balance', async function () {
+			const { trd, firstWallet } = await loadFixture(deployTRD)
+			await expect(await trd.connect(firstWallet).burn(ethers.parseEther('12200000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('12200000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('7800000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('0'))
+		})
+		it('Should be able to burn from own balance when address is blacklisted', async function () {
+			const { trd, owner, firstWallet } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+			await expect(await trd.connect(firstWallet).burn(ethers.parseEther('12200000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('12200000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('7800000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('0'))
+		})
+		it('Should be able to burn from former blacklist address', async function () {
+			const { trd, owner, firstWallet } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+			await expect(await trd.connect(firstWallet).burn(ethers.parseEther('12000000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('12000000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('8000000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('200000000'))
+			await expect(await trd.connect(owner).removeBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'RemovedFromBlackList').withArgs(firstWallet.address)
+			await expect(await trd.connect(firstWallet).burn(ethers.parseEther('200000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('200000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('7800000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('0'))
+		})
+		it('Should be able to burn from approved address balance', async function () {
+			const { trd, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.emit(trd, 'Approval').withArgs(firstWallet.address, receiver.address, ethers.parseEther('12000000000'))
+			await expect(await trd.connect(receiver).burnFrom(firstWallet.address, ethers.parseEther('12000000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('12000000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('8000000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('200000000'))
+		})
+		it('Should be able to burn from former approved address balance', async function () {
+			const { trd, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.emit(trd, 'Approval').withArgs(firstWallet.address, receiver.address, ethers.parseEther('12000000000'))
+			await expect(await trd.connect(receiver).burnFrom(firstWallet.address, ethers.parseEther('10000000000'))).
+				to.emit(trd, 'Transfer').withArgs(firstWallet.address, ethers.ZeroAddress, ethers.parseEther('10000000000'))
+			expect(await trd.totalSupply()).to.equal(ethers.parseEther('10000000000'))
+			expect(await trd.balanceOf(firstWallet.address)).to.equal(ethers.parseEther('2200000000'))
+			await expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('0'))).
+				to.emit(trd, 'Approval').withArgs(firstWallet, receiver.address, ethers.parseEther('0'))
+			await expect(trd.connect(receiver).burnFrom(firstWallet.address, ethers.parseEther('10000000000'))).
+				to.revertedWithCustomError(trd, 'ERC20InsufficientAllowance')
+		})
+	})
+	describe('Approval', function () {
+		it('Should not be able to approve when message sender is blacklisted address', async function () {
+			const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+			await expect(trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.revertedWith('BlackList: Caller is blacklisted')
+		})
+		it('Should not be able to approve blacklisted address', async function () {
+			const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
+			await expect(trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.revertedWith('BlackList: To address is blacklisted')
+		})
+		it('Should be able to approve former blacklisted address', async function () {
+			const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
+			await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+				to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
+			await expect(trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.revertedWith('BlackList: To address is blacklisted')
+			await expect(await trd.connect(owner).removeBlackListAddress(receiver.address)).
+				to.emit(trd, 'RemovedFromBlackList').withArgs(receiver.address)
+			await expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('12000000000'))).
+				to.emit(trd, 'Approval').withArgs(firstWallet.address, receiver.address, ethers.parseEther('12000000000'))
+		})
+	})
+	describe('Withdrawals', function () {
+		describe('Transfer', function () {
+			it('Should be able to transfer to receiver', async function () {
+				const { trd, firstWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+			})
+			it('Should not be able to transfer when message sender is blacklisted', async function () {
+				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+				await expect(trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.be.revertedWith('BlackList: Caller is blacklisted')
+			})
+			it('Should be able to transfer when message sender is former blacklisted', async function () {
+				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+				await expect(trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.be.revertedWith('BlackList: Caller is blacklisted')
+				await expect(await trd.connect(owner).removeBlackListAddress(firstWallet.address)).
 					to.emit(trd, 'RemovedFromBlackList').withArgs(firstWallet.address)
-				expect(await trd.isBlackListAddress(firstWallet.address)).to.equal(false)
-			})
-		})
-		describe('Transfer from black list', function () {
-			it('Should not be able to transfer from black list address', async function () {
-				const { trd, owner, firstWallet, secondWallet } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-				await expect(trd.connect(firstWallet).transfer(secondWallet.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
-			})
-			it('Should not be able to transfer to black list address', async function () {
-				const { trd, owner, firstWallet, secondWallet } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(secondWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(secondWallet.address)
-				await expect(trd.connect(firstWallet).transfer(secondWallet.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
-			})
-		})
-		describe('TransferFrom from black list', function () {
-			it('Should not be able to transfer when msg.sender is in blacklist', async function () {
-				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
-
-				expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
 					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
-
-
-				expect(await trd.connect(receiver).approve(firstWallet.address, ethers.parseEther('800000000'))).
-					to.emit(trd, 'Approval').withArgs(receiver.address, firstWallet.address, ethers.parseEther('800000000'))
-
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-
-				await expect(trd.connect(firstWallet).transferFrom(receiver.address, secondWallet.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
 			})
-			it('Should not be able to transfer from black list address', async function () {
-				const { trd, owner, firstWallet, secondWallet } = await loadFixture(deployTRD)
-				expect(await trd.connect(firstWallet).approve(owner.address, ethers.parseEther('200000000'))).
-					to.emit(trd, 'Approval').withArgs(firstWallet.address, owner.address, ethers.parseEther('200000000'))
-
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-
-				await expect(trd.connect(owner).transferFrom(firstWallet.address, secondWallet.address, ethers.parseEther('200000000'))).
-					to.be.revertedWithCustomError
-			})
-			it('Should not be able to transfer to black list address', async function () {
-				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
-
-				expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
-					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
-
-
-				expect(await trd.connect(receiver).approve(firstWallet.address, ethers.parseEther('800000000'))).
-					to.emit(trd, 'Approval').withArgs(receiver.address, firstWallet.address, ethers.parseEther('800000000'))
-
-
-				expect(await trd.connect(owner).addBlackListAddress(secondWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(secondWallet.address)
-
-				await expect(trd.connect(firstWallet).transferFrom(receiver.address, secondWallet.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
-			})
-		})
-
-		describe('Approve blacklist address', function () {
-			it('Should not be able to approve blacklisted address as spender', async function () {
+			it('Should not be able to transfer when receiver is blacklisted', async function () {
 				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
 					to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
-				expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
+				await expect(trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.be.revertedWith('BlackList: To address is blacklisted')
 			})
-			it('Blacklisted address should not be able to approve another spender', async function () {
+			it('Should be able to transfer when receiver is former blacklisted', async function () {
 				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-				expect(await trd.connect(firstWallet).approve(receiver.address, ethers.parseEther('800000000'))).
-					to.be.revertedWithCustomError
-			})
-		})
-
-		describe('Retrieve from blacklisted address', function () {
-			it('Should be able to retrieve from blacklisted address', async function () {
-				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
-				expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
-					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
-				expect(await trd.connect(owner).retrieveFromBlackList(firstWallet.address, receiver.address, ethers.parseEther('800000000'))).
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
+				await expect(trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.be.revertedWith('BlackList: To address is blacklisted')
+				await expect(await trd.connect(owner).removeBlackListAddress(receiver.address)).
+					to.emit(trd, 'RemovedFromBlackList').withArgs(receiver.address)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
 					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
 			})
-			it('Should not be able to retrieve from non blacklisted address', async function () {
-				const { trd, owner, firstWallet, receiver } = await loadFixture(deployTRD)
-				await expect(trd.connect(owner).retrieveFromBlackList(firstWallet.address, receiver.address, ethers.parseEther('800000000'))).
-					to.be.revertedWith("BlackList: From address is not in the black list")
+		})
+		describe('Transfer from', function () {
+			it('Should be able transferfrom others fund', async function () {
+				const { trd, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('800000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('800000000'))
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('80000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-80000'), ethers.parseEther('80000')])
+			})
+			it('Should not be able to transferfrom when message sender is blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('800000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('800000000'))
+				await expect(await trd.connect(owner).addBlackListAddress(secondWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(secondWallet.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('800000'))).
+					to.be.revertedWith('BlackList: Caller is blacklisted')
+			})
+			it('Should not be able to transferfrom when from address is blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('200000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('200000000'))
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
+				await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('200000000'))).
+					to.be.revertedWith('BlackList: From address is blacklisted')
+			})
+			it('Should not be adle to transferfrom when to is blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('200000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('200000000'))
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
+				await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('100')))
+					.to.be.revertedWith('BlackList: To address is blacklisted')
+			})
+
+			it('Should be able to transferfrom when message sender is former blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).transfer(receiver.address, ethers.parseEther('800000000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-800000000'), ethers.parseEther('800000000')])
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('800000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('800000000'))
+				await expect(await trd.connect(owner).addBlackListAddress(secondWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(secondWallet.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('800000'))).
+					to.be.revertedWith('BlackList: Caller is blacklisted')
+				await expect(await trd.connect(owner).removeBlackListAddress(secondWallet.address)).
+					to.emit(trd, 'RemovedFromBlackList').withArgs(secondWallet.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('80000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-80000'), ethers.parseEther('80000')])
+			})
+			it('Should be able to transferfrom when from address is blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('200000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('200000000'))
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
+				await expect(await trd.connect(owner).addBlackListAddress(firstWallet.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(firstWallet.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('200000000'))).
+					to.be.revertedWith('BlackList: From address is blacklisted')
+				await expect(await trd.connect(owner).removeBlackListAddress(firstWallet.address)).
+					to.emit(trd, 'RemovedFromBlackList').withArgs(firstWallet.address)
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
+			})
+			it('Should be adle to transferfrom when to is blacklisted', async function () {
+				const { trd, owner, firstWallet, secondWallet, receiver } = await loadFixture(deployTRD)
+				await expect(await trd.connect(firstWallet).approve(secondWallet.address, ethers.parseEther('200000000'))).
+					to.emit(trd, 'Approval').withArgs(firstWallet.address, secondWallet.address, ethers.parseEther('200000000'))
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
+				await expect(await trd.connect(owner).addBlackListAddress(receiver.address)).
+					to.emit(trd, 'AddedToBlackList').withArgs(receiver.address)
+				await expect(trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('100')))
+					.to.be.revertedWith('BlackList: To address is blacklisted')
+				await expect(await trd.connect(owner).removeBlackListAddress(receiver.address)).
+					to.emit(trd, 'RemovedFromBlackList').withArgs(receiver.address)
+				await expect(await trd.connect(secondWallet).transferFrom(firstWallet.address, receiver.address, ethers.parseEther('8000'))).
+					to.changeTokenBalances(trd, [firstWallet, receiver], [ethers.parseEther('-8000'), ethers.parseEther('8000')])
 			})
 		})
 	})
